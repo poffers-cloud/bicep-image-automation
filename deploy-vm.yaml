@@ -1,0 +1,159 @@
+name: build vm
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: "Credentials"
+
+parameters:
+  - name: deploymentType
+    displayName: "Select the deployment type"
+    type: string
+    default: "sub"
+    values:
+      - tenant
+      - mg
+      - sub
+      - group
+
+  - name: customerName
+    displayName: "Customer Name"
+    type: string
+
+  - name: subscriptionId
+    displayName: "Customer Azure Subscription"
+    type: string
+    default: 6bc2a89b-8ffc-4c4a-8973-83d75a65f7c4
+
+  - name: productType
+    displayName: "Select the product type"
+    type: string
+    default: "avd"
+    values:
+      - avd
+
+  - name: environmentType
+    displayName: "Select the environment"
+    type: string
+    values:
+      - prod
+      - acc
+      - dev
+      - test
+
+  - name: location
+    displayName: "Select the location"
+    type: string
+    default: "westeurope"
+    values:
+      - westeurope
+      - northeurope
+
+  - name: vmCount
+    displayName: "Number of VMs to Create"
+    type: string
+    default: 1
+
+  - name: avdSize
+    displayName: "Size of the AVD VM"
+    type: string
+    default: "Standard_D2s_v3"
+
+stages:
+  - stage: DeployVMs
+    displayName: "Deploy VMs using the latest image"
+    jobs:
+      - job: BuildVMs
+        displayName: "Build Virtual Machines"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "Create VMs"
+            inputs:
+              azureSubscription: "AVDPipelines"
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+                
+                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+
+
+                # Get the latest image version from the shared image gallery
+                sigImageVersion=$(az sig image-version list \
+                  --resource-group $resourceGroupName \
+                  --gallery-name "gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}" \
+                  --gallery-image-definition "img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                  --query "[].{Version:name}" -o tsv | sort -V | tail -n 1)
+
+                if [[ -z "$sigImageVersion" ]]; then
+                  echo "Error: Could not find the latest image version."
+                  exit 1
+                fi
+
+                vmCount=${{ parameters.vmCount }}
+                username="adm_installuser"
+                new_vm_names=""
+
+                for i in $(seq 1 $vmCount); do
+                  vmIndex=1
+                  while true; do
+                    vmname="avd-${{ parameters.customerName }}-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
+                    existingVM=$(az vm list --resource-group $resourceGroupName --query "[?name=='$vmname']" -o tsv)
+
+                    if [[ -z "$existingVM" ]]; then
+                      break
+                    else
+                      ((vmIndex++))
+                    fi
+                  done
+
+                  # Create the VM
+                  az vm create \
+                    --resource-group $resourceGroupName \
+                    --name $vmname \
+                    --image "/subscriptions/${{ parameters.subscriptionId }}/resourceGroups/${resourceGroupName}/providers/Microsoft.Compute/galleries/gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}/images/img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}/versions/$sigImageVersion" \
+                    --admin-username $username \
+                    --size ${{ parameters.avdSize }} \
+                    --authentication-type password \
+                    --admin-password $(ADMIN_PASSWORD) \
+                    --subnet "snet-${{ parameters.productType }}" \
+                    --security-type TrustedLaunch \
+                    --public-ip-address "" \
+                    --license-type Windows_Server \
+                    --nsg-rule None \
+                    --vnet-name "vnet-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                    --availability-set "avail-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+
+                  echo "VM '$vmname' created successfully."
+                  new_vm_names="$new_vm_names $vmname"
+                done
+
+                echo "VMs created: $new_vm_names"
+                echo "##vso[task.setvariable variable=vmNames]$new_vm_names"
