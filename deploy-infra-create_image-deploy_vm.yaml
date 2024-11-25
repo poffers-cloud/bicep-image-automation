@@ -70,6 +70,7 @@ parameters:
     values:
       - win11-24h2-avd-m365
       - 2022-datacenter-azure-edition
+      - 2022-datacenter-azure-edition-hotpatch
       
 
   - name: offerName
