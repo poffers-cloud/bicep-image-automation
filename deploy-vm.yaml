@@ -118,7 +118,7 @@ stages:
                 fi
 
                 vmCount=${{ parameters.vmCount }}
-                username="adm_installuser"
+                username=$(ADMIN_USERNAME)
                 new_vm_names=""
 
                 for i in $(seq 1 $vmCount); do
