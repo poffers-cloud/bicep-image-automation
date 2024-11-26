@@ -29,7 +29,7 @@ parameters:
   - name: subscriptionId
     displayName: "Customer Azure Subscription"
     type: string
-    default: 6bc2a89b-8ffc-4c4a-8973-83d75a65f7c4
+    default: 
 
   - name: productType
     displayName: "Select the product type"
