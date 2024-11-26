@@ -1,0 +1,251 @@
+name: deploy sessionhosts
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: "Credentials"
+
+parameters:
+  - name: deploymentType
+    displayName: "Select the deployment type"
+    type: string
+    default: "sub"
+    values:
+      - tenant
+      - mg
+      - sub
+      - group
+
+  - name: customerName
+    displayName: "Customer Name"
+    type: string
+
+  - name: subscriptionId
+    displayName: "Customer Azure Subscription"
+    type: string
+    default: 
+
+  - name: productType
+    displayName: "Select the product type"
+    type: string
+    default: "avd"
+    values:
+      - avd
+
+  - name: environmentType
+    displayName: "Select the environment"
+    type: string
+    values:
+      - prod
+      - acc
+      - dev
+      - test
+
+  - name: location
+    displayName: "Select the location"
+    type: string
+    default: "westeurope"
+    values:
+      - westeurope
+      - northeurope
+
+  - name: existingResourceGroup
+    displayName: "Existing Resource Group"
+    type: string
+  
+  - name: existingVnet
+    displayName: "Existing Vnet"
+    type: string
+
+  - name: existingSubnet
+    displayName: "Existing Subnet"
+    type: string
+
+  - name: vmCount
+    displayName: "Number of VMs to Create"
+    type: string
+    default: 1
+
+  - name: avdSize
+    displayName: "Size of the AVD VM"
+    type: string
+    default: "Standard_D2s_v3"
+
+stages:
+  - stage: DeployAndConfigureSessionHosts
+    displayName: "Deploy and Configure sessionhosts"
+    jobs:
+      - job: BuildAndConfigureVMs
+        displayName: "Build and Configure sessionhosts"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "Create and Configure sessionhosts"
+            inputs:
+              azureSubscription: "AVDPipelines"
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Ensure the Azure CLI is up to date
+                echo "Updating Azure CLI..."
+                az upgrade --yes
+
+                # Check if the desktopvirtualization extension is installed
+                if ! az extension show --name desktopvirtualization &>/dev/null; then
+                  echo "Installing 'desktopvirtualization' extension..."
+                  az extension add --name desktopvirtualization
+                else
+                  echo "'desktopvirtualization' extension is already installed."
+                fi
+
+                # Define resource group and other parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+
+                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                sigImageVersion=$(az sig image-version list \
+                  --resource-group $resourceGroupName \
+                  --gallery-name "gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}" \
+                  --gallery-image-definition "img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                  --query "[].{Version:name}" -o tsv | sort -V | tail -n 1)
+                if [[ -z "$sigImageVersion" ]]; then
+                  echo "Error: Could not find the latest image version."
+                  exit 1
+                fi
+
+                vmCount=${{ parameters.vmCount }}
+                username="adm_installuser"
+
+                                for i in $(seq 1 $vmCount); do
+                  vmIndex=1
+                  while true; do
+                    vmname="avd-${{ parameters.customerName }}-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
+                    existingVM=$(az vm list --resource-group $resourceGroupName --query "[?name=='$vmname']" -o tsv)
+                    if [[ -z "$existingVM" ]]; then
+                      break
+                    else
+                      ((vmIndex++))
+                    fi
+                  done
+
+                  nicName="nic-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}-$(printf "%02d" $i)"
+
+                  # Get the Subnet Resource ID
+                  subnetId=$(az network vnet subnet show \
+                      --resource-group "${{ parameters.existingResourceGroup }}" \
+                      --vnet-name "${{ parameters.existingVnet }}" \
+                      --name "${{ parameters.existingSubnet }}" \
+                      --query id -o tsv)
+
+                  echo $subnetId
+
+                  az network nic create \
+                  --resource-group $resourceGroupName \
+                  --name $nicName \
+                  --subnet $subnetId \
+                  --vnet-name "${{ parameters.existingVnet }}" \
+                  
+
+                  # Create the VM
+                  az vm create \
+                    --resource-group $resourceGroupName \
+                    --name $vmname \
+                    --image "/subscriptions/${{ parameters.subscriptionId }}/resourceGroups/${resourceGroupName}/providers/Microsoft.Compute/galleries/gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}/images/img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}/versions/$sigImageVersion" \
+                    --admin-username $username \
+                    --size ${{ parameters.avdSize }} \
+                    --authentication-type password \
+                    --admin-password $(ADMIN_PASSWORD) \
+                    --nics $nicName \
+                    --security-type TrustedLaunch \
+                    --public-ip-address "" \
+                    --license-type Windows_Client \
+                    --nsg-rule None \
+                    --availability-set "avail-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+
+                  echo "VM '$vmname' created successfully."
+
+                  # Install AVD Agent and Bootloader
+                  echo "Installing AVD Agent & Bootloader on $vmname..."
+                  az vm run-command invoke \
+                    --command-id RunPowerShellScript \
+                    --name $vmname \
+                    --resource-group $resourceGroupName \
+                    --scripts "
+                      [System.Collections.Generic.List[string]]\$uris = @(
+                        'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv',
+                        'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrxrH'
+                      );
+                      \$installers = @();
+                      \$outputDir = 'C:\\Downloads';
+                      if (-not (Test-Path \$outputDir)) {
+                          New-Item -ItemType Directory -Path \$outputDir;
+                      }
+                      foreach (\$uri in \$uris) {
+                          \$download = Invoke-WebRequest -Uri \$uri -UseBasicParsing;
+                          \$fileName = (\$download.Headers['Content-Disposition'] -split '=' | Select-Object -Last 1) -replace '\"', '';
+                          if (-not \$fileName) { \$fileName = [System.IO.Path]::GetFileName(\$uri) };
+                          \$outputPath = Join-Path -Path \$outputDir -ChildPath \$fileName;
+                          [System.IO.File]::WriteAllBytes(\$outputPath, \$download.Content);
+                          \$installers += \$outputPath;
+                      }
+                      foreach (\$installer in \$installers) {
+                          Unblock-File -Path \$installer;
+                          Start-Process 'msiexec.exe' -ArgumentList '/i', \$installer, '/quiet' -Wait;
+                      }"
+                  echo "AVD Agent & Bootloader installation completed on $vmname."
+                done
+                
+
+                # Generate Registration Key for Host Pool
+                echo "Generating registration key for Host Pool..."
+                hostPoolName="vdpool-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                registrationKeyJson=$(az desktopvirtualization hostpool retrieve-registration-token \
+                  --resource-group $resourceGroupName \
+                  --name $hostPoolName -o json)
+
+                # Extract only the registration token from the JSON response
+                registrationKey=$(echo $registrationKeyJson | jq -r '.token')
+
+                # Verify that we have the token
+                if [[ -z "$registrationKey" ]]; then
+                  echo "Error: Registration key is missing. Cannot proceed."
+                  exit 1
+                fi
+
+                echo "Full response received: $registrationKeyJson"
+                echo "Adding registration key to virtual machine..."
+
+                # Use the RunPowerShellScript command to register the VM
+                az vm run-command invoke \
+                  --command-id RunPowerShellScript \
+                  --name $vmname \
+                  --resource-group $resourceGroupName \
+                  --scripts "
+                    Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'IsRegistered' -Value 0 -Force
+                    Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'RegistrationToken' -Value \"$registrationKey\" -Force
+                    Restart-Computer -Force
+                  "
+
+                echo "$vmname registered successfully."
+                
+
