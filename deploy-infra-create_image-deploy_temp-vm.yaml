@@ -30,7 +30,7 @@ parameters:
   - name: subscriptionId
     displayName: "Customer Azure Subscription"
     type: string
-    default: 
+    default: 6bc2a89b-8ffc-4c4a-8973-83d75a65f7c4
 
   - name: productType
     displayName: "Select the product type"
@@ -70,7 +70,6 @@ parameters:
     values:
       - win11-24h2-avd-m365
       - 2022-datacenter-azure-edition
-      - 2022-datacenter-azure-edition-hotpatch
       
 
   - name: offerName
@@ -374,7 +373,7 @@ stages:
                 for i in $(seq 1 $vmCount); do
                   vmIndex=1
                   while true; do
-                    vmname="avd-${{ parameters.customerName }}-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
+                    vmname="ins-${{ parameters.customerName }}-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
                     existingVM=$(az vm list --resource-group $resourceGroupName --query "[?name=='$vmname']" -o tsv)
 
                     if [[ -z "$existingVM" ]]; then

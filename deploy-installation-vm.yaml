@@ -118,13 +118,13 @@ stages:
                 fi
 
                 vmCount=${{ parameters.vmCount }}
-                username=$(ADMIN_USERNAME)
+                username="adm_installuser"
                 new_vm_names=""
 
                 for i in $(seq 1 $vmCount); do
                   vmIndex=1
                   while true; do
-                    vmname="avd-${{ parameters.customerName }}-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
+                    vmname="ins-${{ parameters.customerName }}-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
                     existingVM=$(az vm list --resource-group $resourceGroupName --query "[?name=='$vmname']" -o tsv)
 
                     if [[ -z "$existingVM" ]]; then
