@@ -193,7 +193,7 @@ stages:
                 $subscriptionId = '${{ parameters.subscriptionId }}'
                 $productType = '${{ parameters.productType }}'
                 $environmentType = '${{ parameters.environmentType }}'
-                $updatedBy = 'gert'
+                $updatedBy = 'updatedby'
                 $vnetAddressPrefix = '${{ parameters.vnetAddressPrefix }}'
                 $avdSubnetPrefix = '${{ parameters.avdSubnetPrefix }}'
                 $skuVersion = '${{ parameters.imageVersion }}'
