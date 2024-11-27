@@ -2,19 +2,33 @@
 
 This repository contains YAML files for automating Azure Virtual Desktop (AVD) deployment. Each pipeline focuses on a specific step in the deployment process, from setting up infrastructure to provisioning session hosts.
 
-## 1. deploy-avd-infrastructure.yaml
-This pipeline provisions the foundational Azure infrastructure required for Azure Virtual Desktop, including:
+## 1. deploy-avd-infrastructure.yaml  
 
-- **Resource Groups**: Creates logical containers for managing AVD-related resources.
-- **Host Pools**: Establishes pools for managing session hosts.
-- **Networking Components**: Configures virtual networks and subnets to ensure connectivity and security.
+This pipeline provisions the foundational Azure infrastructure required for Azure Virtual Desktop, including:  
 
-## 2. deploy-create-image.yaml
-This pipeline automates the creation of a custom virtual machine image tailored for AVD deployments. Key features include:
+- **Resource Groups**: Creates logical containers for managing AVD-related resources.  
+- **Host Pools**: Establishes pools for managing session hosts.  
+- **Networking Components**: Configures virtual networks and subnets to ensure connectivity and security.  
+- **Shared Image Gallery**: Creates and manages shared images for AVD deployments.  
+- **Managed Identities**: Provisions a user-assigned managed identity for secure access to Azure resources.  
+- **Image Templates**: Automates the creation and customization of VM images for AVD.  
+- **Application Groups**: Sets up desktop or app groups linked to the host pools.  
+- **Workspaces**: Configures AVD workspaces to organize application groups.  
+- **Storage Accounts**: Creates storage for FSLogix profile containers with proper role assignments.  
+- **Availability Sets**: Ensures high availability for VMs in the AVD deployment.  
 
-- Preparing a base image with pre-installed configurations, optimizations, and applications.
-- Ensuring compatibility with AVD session hosts.
-- Storing the image in a Shared Image Gallery for reuse across deployments.
+Each module is configured with dependencies and resource-specific parameters to orchestrate the deployment seamlessly.  
+
+## 2. deploy-create-image.yaml  
+
+This pipeline automates the creation of a custom virtual machine image tailored for Azure Virtual Desktop (AVD) deployments. Key features include:  
+
+- **Preparing a Base Image with Pre-Installed Configurations, Optimizations, and Applications**: The image template used in this pipeline is created as part of the infrastructure deployment in the `deploy-avd-infrastructure.yaml` pipeline. This ensures a standardized base for all images. Any additional application installations, configurations, or system optimizations required for AVD session hosts should be incorporated into the image template during the infrastructure deployment phase. This approach ensures that all images generated through this pipeline adhere to the same baseline standards.  
+- **Ensuring Compatibility with AVD Session Hosts**: Configures the image to support the requirements of multi-session environments.  
+- **Storing the Image in a Shared Image Gallery for Reuse Across Deployments**: Facilitates version management and centralized access to images.  
+
+This pipeline ensures consistency across deployments by leveraging the foundational image template from the infrastructure setup, while providing flexibility for additional preparation as needed.  
+
 
 ## 3. deploy-installation-vm.yaml
 This pipeline deploys a virtual machine using the custom image created earlier. It supports post-deployment tasks such as:
