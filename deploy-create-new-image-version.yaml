@@ -1,0 +1,442 @@
+name: deploy image
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: "Credentials"
+
+parameters:
+  - name: deploymentType
+    displayName: "Select the deployment type"
+    type: string
+    default: "sub"
+    values:
+      - tenant
+      - mg
+      - sub
+      - group
+
+  - name: customerName
+    displayName: "Customer Name"
+    type: string
+
+  - name: subscriptionId
+    displayName: "Customer Azure Subscription"
+    type: string
+    default: 
+
+  - name: productType
+    displayName: "Select the product type"
+    type: string
+    default: "avd"
+    values:
+      - avd
+
+  - name: environmentType
+    displayName: "Select the environment"
+    type: string
+    values:
+      - prod
+      - acc
+      - dev
+      - test
+
+  - name: machineName
+    displayName: "Name of the Installation Machine"
+    type: string
+    
+          
+
+  - name: location
+    displayName: "Select the location"
+    type: string
+    default: "westeurope"
+    values:
+      - westeurope
+      - northeurope
+  
+  - name: imageVersion
+    displayName: "fill in the image version name like 2024.11.27.1"
+    type: string
+    default: "2024.11.27"
+    
+    
+
+
+stages:
+  - stage: ValidateInputs
+    displayName: "Validate Inputs"
+    jobs:
+      - job: validate_inputs
+        displayName: "Validate Deployment Inputs"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Install System Packages
+            inputs:
+              targetType: "inline"
+              script: |
+                sudo apt update
+                sudo apt install -y uuid-runtime
+
+          - task: Bash@3
+            displayName: Configure Globalization Setting
+            inputs:
+              targetType: "inline"
+              script: echo "##vso[task.setvariable variable=DOTNET_SYSTEM_GLOBALIZATION_INVARIANT]true"
+
+  - stage: Install_Packages_Login
+    displayName: "Install packages, login and deploy bicep"
+    jobs:
+      - job: Install_Packages_Login
+        displayName: "Install packages and login"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+
+  - stage: Take_snapshot_of_the_Disk
+    displayName: "Create a snapshot of the current disk"
+    jobs:
+      - job: Take_snapshot_of_the_Disk
+        displayName: "Create a snapshot of the current disk"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+                
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+                
+                # Define variables
+                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                location="${{ parameters.location }}"
+                vmName="${{ parameters.machineName }}" 
+
+                # Fetch the disk name dynamically from the VM
+                diskName=$(az vm show \
+                  --name "$vmName" \
+                  --resource-group "$resourceGroupName" \
+                  --query "storageProfile.osDisk.name" -o tsv)
+
+                if [ -z "$diskName" ]; then
+                  echo "Error: Unable to retrieve the OS disk name for VM $vmName in resource group $resourceGroupName."
+                  exit 1
+                fi
+
+                echo "Found OS Disk: $diskName"
+
+                # Define snapshot name with timestamp
+                timestamp=$(date -u +"%Y%m%dT%H%M%SZ") # Get current UTC time
+                snapshotName="snapshot-bs-${timestamp}-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+
+                # Create a snapshot
+                az snapshot create \
+                  --name "$snapshotName" \
+                  --resource-group "$resourceGroupName" \
+                  --location "$location" \
+                  --source "$diskName" \
+                  --output json
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to create snapshot $snapshotName."
+                  exit 1
+                fi
+
+                echo "Snapshot $snapshotName created successfully in resource group $resourceGroupName."
+
+  - stage: Sysprep_the_VM
+    displayName: "Sysprep the machine"
+    jobs:
+      - job: Sysprep_the_VM
+        displayName: "Sysprep the machine"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+                
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+                
+                # Define variables
+                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                vmName="${{ parameters.machineName }}" 
+                version="${{ parameters.imageVersion }}"
+
+                # Sysprep the machine
+                echo "Sysprepping the machine $vmName in resource group $resourceGroupName."
+                az vm run-command invoke \
+                  --command-id RunPowerShellScript \
+                  --name "$vmName" \
+                  --resource-group "$resourceGroupName" \
+                  --scripts "Start-Process -FilePath 'C:\\Windows\\System32\\Sysprep\\Sysprep.exe' -ArgumentList '/generalize /shutdown /oobe' -Wait -NoNewWindow"
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to sysprep the VM $vmName."
+                  exit 1
+                fi
+
+                echo "Sysprep operation completed for VM $vmName."
+
+  - stage: Capture_Image_Save_It_To_Gallery
+    displayName: "Capture the image and save it to the gallery"
+    jobs:
+      - job: Capture_Image_Save_It_To_Gallery
+        displayName: "Capture the image and save it to the gallery"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+                
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+                
+                # Define variables
+                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                location="${{ parameters.location }}"
+                vmName="${{ parameters.machineName }}"
+                imageGalleryName="gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}"  # Name of the image gallery
+
+                # Display imageGalleryName for confirmation
+                echo "Image Gallery Name: $imageGalleryName"
+
+                # Generate image name dynamically with timestamp
+                imageName="img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                echo "Image Name: $imageName"
+
+                version="${{ parameters.imageVersion }}"
+                echo "Image Version: $version"
+
+                # Step 1: Deallocate the VM
+                echo "Deallocating the VM $vmName in resource group $resourceGroupName..."
+                az vm deallocate --resource-group "$resourceGroupName" --name "$vmName"
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to deallocate VM $vmName."
+                  exit 1
+                fi
+                echo "VM $vmName deallocated successfully."
+
+                # Step 2: Generalize the VM
+                echo "Generalizing the VM $vmName..."
+                az vm generalize --resource-group "$resourceGroupName" --name "$vmName"
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to generalize VM $vmName."
+                  exit 1
+                fi
+                echo "VM $vmName generalized successfully."
+
+                # Step 3: Get the VM resource ID
+                echo "Retrieving the resource ID for the VM..."
+                vmResourceId=$(az vm show \
+                  --resource-group "$resourceGroupName" \
+                  --name "$vmName" \
+                  --query "id" \
+                  --output tsv)
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to retrieve VM resource ID."
+                  exit 1
+                fi
+
+                echo "VM Resource ID: $vmResourceId"
+
+                # Step 4: Create the image version in the image gallery
+                echo "Creating image version in the gallery..."
+                az sig image-version create \
+                  --resource-group "$resourceGroupName" \
+                  --gallery-name "$imageGalleryName" \
+                  --gallery-image-definition "$imageName" \
+                  --gallery-image-version "$version" \
+                  --virtual-machine "$vmResourceId" \
+                                   
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to create image version in the gallery."
+                  exit 1
+                fi
+
+                echo "Image version created successfully in gallery $imageGalleryName."
+
+  - stage: Delete_Installation_Machine
+    displayName: "Delete the installation machine"
+    jobs:
+      - job: Delete_Installation_Machine
+        displayName: "Delete the installation machine"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login and Resource Deletion
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+
+                # Define variables
+                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                vmName="${{ parameters.machineName }}"
+
+                echo "Deleting Virtual Machine: $vmName from Resource Group: $resourceGroupName"
+
+                # Get the attached resources
+                osDiskId=$(az vm show --name $vmName --resource-group $resourceGroupName --query "storageProfile.osDisk.managedDisk.id" -o tsv)
+                dataDiskIds=$(az vm show --name $vmName --resource-group $resourceGroupName --query "storageProfile.dataDisks[].managedDisk.id" -o tsv)
+                nicIds=$(az vm show --name $vmName --resource-group $resourceGroupName --query "networkProfile.networkInterfaces[].id" -o tsv)
+
+                # Delete the Virtual Machine
+                az vm delete --name $vmName --resource-group $resourceGroupName --yes --no-wait
+                echo "Virtual Machine $vmName deleted."
+
+                # Delete the OS Disk
+                if [ -n "$osDiskId" ]; then
+                  echo "Deleting OS Disk: $osDiskId"
+                  az disk delete --ids $osDiskId --yes --no-wait
+                fi
+
+                # Delete Data Disks
+                if [ -n "$dataDiskIds" ]; then
+                  echo "Deleting Data Disks: $dataDiskIds"
+                  for diskId in $dataDiskIds; do
+                    az disk delete --ids $diskId --yes --no-wait
+                  done
+                fi
+
+                # Delete NICs
+                if [ -n "$nicIds" ]; then
+                  echo "Deleting Network Interfaces: $nicIds"
+                  for nicId in $nicIds; do
+                    az network nic delete --ids $nicId
+                  done
+                fi
+
+                echo "Cleanup completed for VM $vmName."
+
+                
