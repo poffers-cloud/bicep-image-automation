@@ -29,7 +29,6 @@ This pipeline automates the creation of a custom virtual machine image tailored 
 
 This pipeline ensures consistency across deployments by leveraging the foundational image template from the infrastructure setup, while providing flexibility for additional preparation as needed.  
 
-
 ## 3. deploy-installation-vm.yaml
 This pipeline deploys a virtual machine using the custom image created earlier. It supports post-deployment tasks such as:
 
@@ -76,6 +75,18 @@ This pipeline deploys Azure Virtual Desktop session hosts running **Windows 11 M
 - Automatic association with the AVD host pool for seamless operation.
 
 This approach ensures consistency between the network infrastructure and the session host deployment while leveraging the existing IaC setup.
+
+## 9. deploy-create-new-image-version.yaml
+This pipeline automates the process of capturing a new version of a virtual machine image, making it ready for reuse in future AVD deployments. Key tasks include:
+
+- **Taking a Snapshot of the VM**: Captures the current state of the installation VM to ensure that it is preserved before sysprep is applied.
+- **Sysprep and Capture**: The VM is sysprepped (generalized), and its image is captured for later use. This prepares the VM for redeployment as a clean, generalized image.
+- **Sharing to Azure Compute Gallery**: Once the image is captured, it is shared with the Azure Compute Gallery for central management and versioning.
+- **Deleting the Installation VM**: After the image has been successfully captured and shared, the installation VM is deleted to clean up resources.
+
+This step ensures that the image is properly versioned, generalized, and stored in the Azure Compute Gallery for consistent deployment across your AVD environments.
+
+---
 
 ## Purpose
 These pipelines are designed to streamline and automate the deployment and management of Azure Virtual Desktop environments, ensuring consistency, scalability, and efficiency across all stages of the setup process.

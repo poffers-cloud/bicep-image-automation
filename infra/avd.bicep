@@ -74,6 +74,7 @@ param storageAccountName string
 
 param vnetAddressPrefix string
 param avdSubnetPrefix string
+param networksecurityGroupName string
 
 var VNetConfiguration = {
   Subnets: [
@@ -81,13 +82,13 @@ var VNetConfiguration = {
       name: subnetName
       addressPrefix: avdSubnetPrefix
       privateLinkServiceNetworkPolicies: 'Disabled'
+      networkSecurityGroupResourceId: createNetworkSecurityGroup.outputs.resourceId
+      
       
     }
       ]
   
 }
-
-
 
 // Deploy required Resource Groups - New Resources
 module createResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = { 
@@ -103,6 +104,20 @@ module createResourceGroup 'br/public:avm/res/resources/resource-group:0.4.0' = 
     
   }
 
+  module createNetworkSecurityGroup 'br/public:avm/res/network/network-security-group:0.4.0' = {
+    scope: resourceGroup(resourceGroupName)
+    name: 'deploy-${deploymentGuid}'
+    params: {
+      name: networksecurityGroupName
+      location: location
+      securityRules: []
+      tags: tags
+    }
+    dependsOn: [
+      createResourceGroup
+    ]
+  }
+
 module createVirtualNetwork 'br/public:avm/res/network/virtual-network:0.4.0' = {
 scope: resourceGroup(resourceGroupName)
 name: 'vnet-${deploymentGuid}'
@@ -114,7 +129,6 @@ params: {
   tags:tags 
   roleAssignments: [
     {
-      name: 'b24988ac-6180-42a0-ab88-20f7382dd24c'
       roleDefinitionIdOrName: 'contributor'
       principalId: userAssignedManagedIdentity.outputs.principalId
       principalType: 'ServicePrincipal'
@@ -123,15 +137,14 @@ params: {
 dependsOn: [createResourceGroup]
 
 }
-
-
-  module userAssignedManagedIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.3.0' = {
+module userAssignedManagedIdentity 'br/public:avm/res/managed-identity/user-assigned-identity:0.3.0' = {
     scope: resourceGroup(resourceGroupName)
     name: 'id-${deploymentGuid}'
     params: {
       name: userAssignedManagedIdentityName
       location: location
       tags: tags
+      
     }
     dependsOn: [createResourceGroup]
   }
@@ -181,6 +194,30 @@ module createImageTemplate 'br/public:avm/res/virtual-machine-images/image-templ
       {
         restartTimeout: '10m'
         type: 'WindowsRestart'
+      }
+      {
+        destination: 'C:\\AVDImage\\enableFslogix.ps1'
+        name: 'avdBuiltInScript_enableFsLogix'
+        sha256Checksum: '027ecbc0bccd42c6e7f8fc35027c55691fba7645d141c9f89da760fea667ea51'
+        sourceUri: 'https://raw.githubusercontent.com/Azure/RDS-Templates/master/CustomImageTemplateScripts/CustomImageTemplateScripts_2024-03-27/FSLogix.ps1'
+        type: 'File'
+      }
+      {
+        inline: [
+          'C:\\AVDImage\\enableFslogix.ps1 -FSLogixInstaller "https://aka.ms/fslogix_download" -VHDSize "30000" -ProfilePath "\\test\\test\\"'
+        ]
+        name: 'avdBuiltInScript_enableFsLogix-parameter'
+        runAsSystem: true
+        runElevated: true
+        type: 'PowerShell'
+      }
+      {
+        name: 'avdBuiltInScript_adminSysPrep'
+        runAsSystem: true
+        runElevated: true
+        scriptUri: 'https://raw.githubusercontent.com/Azure/RDS-Templates/master/CustomImageTemplateScripts/CustomImageTemplateScripts_2024-03-27/AdminSysPrep.ps1'
+        sha256Checksum: '1dcaba4823f9963c9e51c5ce0adce5f546f65ef6034c364ef7325a0451bd9de9'
+        type: 'PowerShell'
       }
     ]
     imageSource: {
