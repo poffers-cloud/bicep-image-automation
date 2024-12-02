@@ -14,10 +14,6 @@ param updatedBy string = ''
 ])
 param environmentType string = 'test'
 
-// param blabla string
-
-// param deployedBy string
-
 param subscriptionId string = '6bc2a89b-8ffc-4c4a-8973-83d75a65f7c4'
 
 @description('Unique identifier for the deployment')
