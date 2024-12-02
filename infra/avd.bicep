@@ -12,9 +12,9 @@ param updatedBy string = ''
   'acc'
   'poc'
 ])
-param environmentType string = 'test'
+param environmentType string 
 
-param subscriptionId string = '6bc2a89b-8ffc-4c4a-8973-83d75a65f7c4'
+param subscriptionId string 
 
 @description('Unique identifier for the deployment')
 param deploymentGuid string = newGuid()
