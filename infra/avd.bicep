@@ -225,10 +225,7 @@ module createImageTemplate 'br/public:avm/res/virtual-machine-images/image-templ
     }
     tags: tags
    
-    subnetResourceId: createVirtualNetwork.outputs.subnetResourceIds[0]
     
-   
-
     distributions: [
       {
         type: 'SharedImage'
