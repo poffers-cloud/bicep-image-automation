@@ -2,8 +2,8 @@ using 'imagetemplate.bicep'
 
 
 //parameters for the deployment.
-param updatedBy = ''
-param subscriptionId = ''
+param updatedBy = 'yourname'
+param subscriptionId = 'yoursubscriptionid'
 param environmentType = 'prod' 
 param customerName = 'pof' 
 param location = 'westeurope' 
