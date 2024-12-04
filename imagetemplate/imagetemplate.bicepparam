@@ -23,5 +23,5 @@ param imageTemplateName = 'it-pof-avd-prod-weu'
 param imagesSharedGalleryName = 'img-pof-avd-prod-weu'
 
 //Paremeters for the Managed Identity.
-param userAssignedManagedIdentityName = 'rg-pof-hub-dev-weu'
+param userAssignedManagedIdentityName = 'rg-pof-avd-prod-weu'
 
