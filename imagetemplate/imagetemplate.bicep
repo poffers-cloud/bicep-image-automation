@@ -1,10 +1,8 @@
 targetScope = 'subscription'
 
+param updatedBy string 
 
-@description('Logged in user details. Passed in from parent "deployNow.ps1" script.')
-param updatedBy string = ''
-
-@description('Environment Type: Test, Acceptance/UAT, productTypeion, etc. Passed in from parent "deployNow.ps1" script.')
+@description('Environment Type: example prod.')
 @allowed([
   'test'
   'dev'
@@ -19,7 +17,7 @@ param subscriptionId string
 @description('Unique identifier for the deployment')
 param deploymentGuid string = newGuid()
 
-@description('Network Type: hub or spoke "deployNow.ps1" script.')
+@description('Product Type: example avd.')
 @allowed([
   'avd'
   ])
