@@ -2,11 +2,12 @@ using 'imagetemplate.bicep'
 
 
 //parameters for the deployment.
+param updatedBy = ''
 param subscriptionId = ''
-param environmentType = 'prod' // When deploying please choose from hub or spoke
-param customerName = 'pof' // Customer name
-param location = 'westeurope' // Location 
-param locationShortCode = 'weu' // Location short code
+param environmentType = 'prod' 
+param customerName = 'pof' 
+param location = 'westeurope' 
+param locationShortCode = 'weu' 
 param productType = 'avd'
 
 ///Paremeters for the SKU version.
