@@ -23,7 +23,7 @@ param deploymentGuid string = newGuid()
   ])
 param productType string
 
-@description('The customer name.')
+@description('The customer name: example pof.')
 param customerName string
 
 @description('Azure Region to deploy the resources in.')
@@ -34,7 +34,8 @@ param customerName string
   'ukwest'
 ])
 param location string = 'westeurope'
-@description('Location shortcode. Used for end of resource names.')
+
+@description('Location shortcode')
 param locationShortCode string 
 
 @description('Add tags as required as Name:Value')
