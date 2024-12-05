@@ -17,12 +17,12 @@ param offerName = 'WindowsServer'
     
 //Parameters for the Shared Image Gallery.
 param sigImageVersion = '1.0.0'
-param azureSharedImageGalleryName = 'galpofavdprodweu'
+param azureSharedImageGalleryName = 'gal${customerName}${productType}${environmentType}${locationShortCode}'
 
 //Parameters for the Image Template.
-param imageTemplateName = 'it-pof-avd-prod-weu'
-param imagesSharedGalleryName = 'img-pof-avd-prod-weu'
+param imageTemplateName = 'it-${customerName}-${productType}-${environmentType}-${locationShortCode}'
+param imagesSharedGalleryName = 'img-${customerName}-${productType}-${environmentType}-${locationShortCode}'
 
 //Paremeters for the Managed Identity.
-param userAssignedManagedIdentityName = 'rg-pof-avd-prod-weu'
+param userAssignedManagedIdentityName = 'mi-${customerName}-${productType}-${environmentType}-${locationShortCode}'
 
