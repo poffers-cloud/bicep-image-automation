@@ -41,6 +41,6 @@ if ($deploy) {
     --location $location `
     --template-file ./imagetemplate.bicep `
     --parameters ./imagetemplate.bicepparam `
-    --parameters updatedBy=$updatedBy customerName=$customerName location=$location locationShortCode=$LocationShortCode productType=$productType environmentType=$environmentType `
+    --parameters updatedBy=$updatedBy location=$location locationShortCode=$LocationShortCode productType=$productType environmentType=$environmentType `
     --confirm-with-what-if `
 }
