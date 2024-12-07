@@ -188,7 +188,7 @@ stages:
                 # Derived values
                 $storageAccountName = "st$productType$environmentType$locationShortCode"
                 $azureSharedImageGalleryName = "gal$productType$environmentType$locationShortCode"
-                $imagesSharedGalleryName = "img--$productType-$environmentType-$locationShortCode"
+                $imagesSharedGalleryName = "img-$productType-$environmentType-$locationShortCode"
                 $imageTemplateName = "it-$productType-$environmentType-$locationShortCode"
                 $userAssignedManagedIdentityName = "mi-$productType-$environmentType-$locationShortCode"
                 $vnetName = "vnet-$productType-$environmentType-$locationShortCode"
