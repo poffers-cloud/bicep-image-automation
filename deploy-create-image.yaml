@@ -23,12 +23,8 @@ parameters:
       - sub
       - group
 
-  - name: customerName
-    displayName: "Customer Name"
-    type: string
-
   - name: subscriptionId
-    displayName: "Customer Azure Subscription"
+    displayName: "Azure Subscription"
     type: string
     default: 
 
@@ -127,7 +123,7 @@ stages:
                   *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
                 esac
 
-                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
                 # Login to Azure
                 az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
