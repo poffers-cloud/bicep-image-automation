@@ -23,12 +23,8 @@ parameters:
       - sub
       - group
 
-  - name: customerName
-    displayName: "Customer Name"
-    type: string
-
   - name: subscriptionId
-    displayName: "Customer Azure Subscription"
+    displayName: "Azure Subscription"
     type: string
     default: 
 
@@ -162,7 +158,7 @@ stages:
                 esac
                 
                 # Define variables
-                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
                 location="${{ parameters.location }}"
                 vmName="${{ parameters.machineName }}" 
 
@@ -181,7 +177,7 @@ stages:
 
                 # Define snapshot name with timestamp
                 timestamp=$(date -u +"%Y%m%dT%H%M%SZ") # Get current UTC time
-                snapshotName="snapshot-bs-${timestamp}-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                snapshotName="snapshot-bs-${timestamp}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
                 # Create a snapshot
                 az snapshot create \
@@ -237,7 +233,7 @@ stages:
                 esac
                 
                 # Define variables
-                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
                 vmName="${{ parameters.machineName }}" 
                 version="${{ parameters.imageVersion }}"
 
@@ -295,16 +291,16 @@ stages:
                 esac
                 
                 # Define variables
-                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
                 location="${{ parameters.location }}"
                 vmName="${{ parameters.machineName }}"
-                imageGalleryName="gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}"  # Name of the image gallery
+                imageGalleryName="gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}"  # Name of the image gallery
 
                 # Display imageGalleryName for confirmation
                 echo "Image Gallery Name: $imageGalleryName"
 
                 # Generate image name dynamically with timestamp
-                imageName="img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                imageName="img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
                 echo "Image Name: $imageName"
 
                 version="${{ parameters.imageVersion }}"
@@ -401,7 +397,7 @@ stages:
                 esac
 
                 # Define variables
-                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
                 vmName="${{ parameters.machineName }}"
 
                 echo "Deleting Virtual Machine: $vmName from Resource Group: $resourceGroupName"

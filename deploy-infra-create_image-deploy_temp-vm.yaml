@@ -22,13 +22,9 @@ parameters:
       - mg
       - sub
       - group
-
-  - name: customerName
-    displayName: "Customer Name"
-    type: string
-
+ 
   - name: subscriptionId
-    displayName: "Customer Azure Subscription"
+    displayName: "Azure Subscription"
     type: string
     default: 
 
@@ -189,7 +185,6 @@ stages:
                 }
 
                 # Extract parameters
-                $customerName = '${{ parameters.customerName }}'
                 $subscriptionId = '${{ parameters.subscriptionId }}'
                 $productType = '${{ parameters.productType }}'
                 $environmentType = '${{ parameters.environmentType }}'
@@ -201,20 +196,20 @@ stages:
                 $publisherName = '${{ parameters.publisherName }}'
 
                 # Derived values
-                $storageAccountName = "st$customerName$productType$environmentType$locationShortCode"
-                $azureSharedImageGalleryName = "gal$customerName$productType$environmentType$locationShortCode"
-                $imagesSharedGalleryName = "img-$customerName-$productType-$environmentType-$locationShortCode"
-                $imageTemplateName = "it-$customerName-$productType-$environmentType-$locationShortCode"
-                $userAssignedManagedIdentityName = "mi-$customerName-$productType-$environmentType-$locationShortCode"
-                $vnetName = "vnet-$customerName-$productType-$environmentType-$locationShortCode"
-                $avdHostpoolName = "vdpool-$customerName-$productType-$environmentType-$locationShortCode"
-                $applicationGroupName = "vdag-$customerName-$productType-$environmentType-$locationShortCode"
-                $workspaceName = "vdws-$customerName-$productType-$environmentType-$locationShortCode"
-                $availabilitySetName = "avail-$customerName-$productType-$environmentType-$locationShortCode"
+                $storageAccountName = "st$productType$environmentType$locationShortCode"
+                $azureSharedImageGalleryName = "gal$productType$environmentType$locationShortCode"
+                $imagesSharedGalleryName = "img-$productType-$environmentType-$locationShortCode"
+                $imageTemplateName = "it-$productType-$environmentType-$locationShortCode"
+                $userAssignedManagedIdentityName = "mi-$productType-$environmentType-$locationShortCode"
+                $vnetName = "vnet-$productType-$environmentType-$locationShortCode"
+                $avdHostpoolName = "vdpool-$productType-$environmentType-$locationShortCode"
+                $applicationGroupName = "vdag-$productType-$environmentType-$locationShortCode"
+                $workspaceName = "vdws-$productType-$environmentType-$locationShortCode"
+                $availabilitySetName = "avail-$productType-$environmentType-$locationShortCode"
                 $subnetName = "snet-$productType"
 
                 # Validate required parameters
-                $requiredParams = @($customerName, $subscriptionId, $productType, $environmentType, $location, $locationShortCode, $vnetAddressPrefix, $avdSubnetPrefix)
+                $requiredParams = @($subscriptionId, $productType, $environmentType, $location, $locationShortCode, $vnetAddressPrefix, $avdSubnetPrefix)
                 foreach ($param in $requiredParams) {
                   if (-not $param) {
                     Write-Error "Missing required parameter: $($param)"
@@ -226,7 +221,6 @@ stages:
                 $params = @"
                 using './infra/avd.bicep'
 
-                param customerName = '$customerName'
                 param subscriptionId = '$subscriptionId'
                 param productType = '$productType'
                 param environmentType = '$environmentType'
@@ -287,7 +281,7 @@ stages:
                   *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
                 esac
 
-                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
                 # Login to Azure
                 az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
@@ -351,14 +345,14 @@ stages:
                   *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
                 esac
                 
-                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
 
                 # Get the latest image version from the shared image gallery
                 sigImageVersion=$(az sig image-version list \
                   --resource-group $resourceGroupName \
-                  --gallery-name "gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}" \
-                  --gallery-image-definition "img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                  --gallery-name "gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}" \
+                  --gallery-image-definition "img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
                   --query "[].{Version:name}" -o tsv | sort -V | tail -n 1)
 
                 if [[ -z "$sigImageVersion" ]]; then
@@ -373,7 +367,7 @@ stages:
                 for i in $(seq 1 $vmCount); do
                   vmIndex=1
                   while true; do
-                    vmname="ins-${{ parameters.customerName }}-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
+                    vmname="ins-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
                     existingVM=$(az vm list --resource-group $resourceGroupName --query "[?name=='$vmname']" -o tsv)
 
                     if [[ -z "$existingVM" ]]; then
@@ -387,7 +381,7 @@ stages:
                   az vm create \
                     --resource-group $resourceGroupName \
                     --name $vmname \
-                    --image "/subscriptions/${{ parameters.subscriptionId }}/resourceGroups/${resourceGroupName}/providers/Microsoft.Compute/galleries/gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}/images/img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}/versions/$sigImageVersion" \
+                    --image "/subscriptions/${{ parameters.subscriptionId }}/resourceGroups/${resourceGroupName}/providers/Microsoft.Compute/galleries/gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}/images/img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}/versions/$sigImageVersion" \
                     --admin-username $username \
                     --size ${{ parameters.avdSize }} \
                     --authentication-type password \
@@ -397,8 +391,8 @@ stages:
                     --public-ip-address "" \
                     --license-type Windows_Server \
                     --nsg-rule None \
-                    --vnet-name "vnet-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
-                    --availability-set "avail-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                    --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                    --availability-set "avail-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
                   echo "VM '$vmname' created successfully."
                   new_vm_names="$new_vm_names $vmname"

@@ -23,12 +23,8 @@ parameters:
       - sub
       - group
 
-  - name: customerName
-    displayName: "Customer Name"
-    type: string
-
   - name: subscriptionId
-    displayName: "Customer Azure Subscription"
+    displayName: "Azure Subscription"
     type: string
     default: 
 
@@ -122,11 +118,11 @@ stages:
                   *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
                 esac
 
-                resourceGroupName="rg-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
                 sigImageVersion=$(az sig image-version list \
                   --resource-group $resourceGroupName \
-                  --gallery-name "gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}" \
-                  --gallery-image-definition "img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                  --gallery-name "gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}" \
+                  --gallery-image-definition "img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
                   --query "[].{Version:name}" -o tsv | sort -V | tail -n 1)
                 if [[ -z "$sigImageVersion" ]]; then
                   echo "Error: Could not find the latest image version."
@@ -139,7 +135,7 @@ stages:
                                 for i in $(seq 1 $vmCount); do
                   vmIndex=1
                   while true; do
-                    vmname="avd-${{ parameters.customerName }}-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
+                    vmname="avd-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
                     existingVM=$(az vm list --resource-group $resourceGroupName --query "[?name=='$vmname']" -o tsv)
                     if [[ -z "$existingVM" ]]; then
                       break
@@ -148,7 +144,7 @@ stages:
                     fi
                   done
 
-                  nicName="nic-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}-$(printf "%02d" $i)"
+                  nicName="nic-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}-$(printf "%02d" $i)"
 
                   # Get the Subnet Resource ID
                   subnetId=$(az network vnet subnet show \
@@ -170,7 +166,7 @@ stages:
                   az vm create \
                     --resource-group $resourceGroupName \
                     --name $vmname \
-                    --image "/subscriptions/${{ parameters.subscriptionId }}/resourceGroups/${resourceGroupName}/providers/Microsoft.Compute/galleries/gal${{ parameters.customerName }}${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}/images/img-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}/versions/$sigImageVersion" \
+                    --image "/subscriptions/${{ parameters.subscriptionId }}/resourceGroups/${resourceGroupName}/providers/Microsoft.Compute/galleries/gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}/images/img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}/versions/$sigImageVersion" \
                     --admin-username $username \
                     --size ${{ parameters.avdSize }} \
                     --authentication-type password \
@@ -180,7 +176,7 @@ stages:
                     --public-ip-address "" \
                     --license-type Windows_Server \
                     --nsg-rule None \
-                    --availability-set "avail-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                    --availability-set "avail-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
                   echo "VM '$vmname' created successfully."
 
@@ -235,7 +231,7 @@ stages:
 
                 # Generate Registration Key for Host Pool
                 echo "Generating registration key for Host Pool..."
-                hostPoolName="vdpool-${{ parameters.customerName }}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                hostPoolName="vdpool-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
                 registrationKeyJson=$(az desktopvirtualization hostpool retrieve-registration-token \
                   --resource-group $resourceGroupName \
                   --name $hostPoolName -o json)

@@ -1,13 +1,12 @@
 targetScope = 'subscription'
 
-param updatedBy string = ''
+param updatedBy string 
 
 @allowed([
   'test'
   'dev'
   'prod'
   'acc'
-  'poc'
 ])
 param environmentType string 
 
@@ -22,15 +21,11 @@ param deploymentGuid string = newGuid()
   ])
 param productType string
 
-@description('The customer name.')
-param customerName string
-
 @description('Azure Region to deploy the resources in.')
 @allowed([
   'westeurope'
   'northeurope'
-  'uksouth'
-  'ukwest'
+  
 ])
 param location string = 'westeurope'
 @description('Location shortcode. Used for end of resource names.')
@@ -39,12 +34,11 @@ param locationShortCode string
 @description('Add tags as required as Name:Value')
 param tags object = {
   Environment: environmentType
-  Customer: customerName
   LastUpdatedOn: utcNow('d')
   LastDeployedBy: updatedBy
 }
 
-param resourceGroupName string = 'rg-${customerName}-${productType}-${environmentType}-${locationShortCode}'
+param resourceGroupName string = 'rg-${productType}-${environmentType}-${locationShortCode}'
 
 param skuVersion string
 param publisherName string
