@@ -5,7 +5,6 @@ using 'imagetemplate.bicep'
 param updatedBy = 'yourname'
 param subscriptionId = 'yoursubscriptionid'
 param environmentType = 'prod' 
-param customerName = 'pof' 
 param location = 'westeurope' 
 param locationShortCode = 'weu' 
 param productType = 'avd'
@@ -17,12 +16,12 @@ param offerName = 'WindowsServer'
     
 //Parameters for the Shared Image Gallery.
 param sigImageVersion = '1.0.0'
-param azureSharedImageGalleryName = 'gal${customerName}${productType}${environmentType}${locationShortCode}'
+param azureSharedImageGalleryName = 'gal${productType}${environmentType}${locationShortCode}'
 
 //Parameters for the Image Template.
-param imageTemplateName = 'it-${customerName}-${productType}-${environmentType}-${locationShortCode}'
-param imagesSharedGalleryName = 'img-${customerName}-${productType}-${environmentType}-${locationShortCode}'
+param imageTemplateName = 'it-${productType}-${environmentType}-${locationShortCode}'
+param imagesSharedGalleryName = 'img-${productType}-${environmentType}-${locationShortCode}'
 
 //Paremeters for the Managed Identity.
-param userAssignedManagedIdentityName = 'mi-${customerName}-${productType}-${environmentType}-${locationShortCode}'
+param userAssignedManagedIdentityName = 'mi-${productType}-${environmentType}-${locationShortCode}'
 
