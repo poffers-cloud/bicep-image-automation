@@ -207,6 +207,7 @@ stages:
                 $workspaceName = "vdws-$productType-$environmentType-$locationShortCode"
                 $availabilitySetName = "avail-$productType-$environmentType-$locationShortCode"
                 $subnetName = "snet-$productType"
+                $networksecurityGroupName = "nsg-$productType"
 
                 # Validate required parameters
                 $requiredParams = @($subscriptionId, $productType, $environmentType, $location, $locationShortCode, $vnetAddressPrefix, $avdSubnetPrefix)
@@ -243,6 +244,7 @@ stages:
                 param skuVersion = '$skuVersion'
                 param offerName = '$offerName'
                 param publisherName = '$publisherName'
+                param networksecurityGroupName = '$networksecurityGroupName'
                 "@
 
                 # Write to file
