@@ -144,7 +144,7 @@ stages:
                     fi
                   done
 
-                  nicName="nic-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}-$(printf "%02d" $i)"
+                  nicName="nic-$vmname"
 
                   # Get the Subnet Resource ID
                   subnetId=$(az network vnet subnet show \

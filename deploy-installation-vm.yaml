@@ -130,7 +130,25 @@ stages:
                     fi
                   done
 
-                  # Create the VM
+                  nicName="nic-$vmname"
+
+                  # Get the Subnet Resource ID
+                  subnetId=$(az network vnet subnet show \
+                      --resource-group $resourceGroupName \
+                      --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                      --name "snet-${{ parameters.productType }}" \
+                      --query id -o tsv)
+
+                  echo $subnetId
+
+                  az network nic create \
+                  --resource-group $resourceGroupName \
+                  --name $nicName \
+                  --subnet $subnetId \
+                  --accelerated-networking true \
+                  --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+
+                   # Create the VM
                   az vm create \
                     --resource-group $resourceGroupName \
                     --name $vmname \
@@ -139,13 +157,11 @@ stages:
                     --size ${{ parameters.avdSize }} \
                     --authentication-type password \
                     --admin-password $(ADMIN_PASSWORD) \
-                    --subnet "snet-${{ parameters.productType }}" \
+                    --nics $nicName \
                     --security-type TrustedLaunch \
                     --public-ip-address "" \
                     --license-type Windows_Server \
                     --nsg-rule None \
-                    --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
-                    --availability-set "avail-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
                   echo "VM '$vmname' created successfully."
                   new_vm_names="$new_vm_names $vmname"
