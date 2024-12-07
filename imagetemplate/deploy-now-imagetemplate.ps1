@@ -32,9 +32,6 @@ $LocationShortCodeMap = @{
 $locationShortCode = $LocationShortCodeMap.$location
 
 if ($deploy) {
-    <# deployment timer start #>
-    $starttime = [System.DateTime]::Now
-
     Write-Host "Running a Bicep deployment with ID: '$deploymentID' for Environment: '$environmentType' with a 'WhatIf' check." -ForegroundColor Green
     az deployment sub create `
     --name $deploymentID `
