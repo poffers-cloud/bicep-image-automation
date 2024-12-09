@@ -132,7 +132,7 @@ stages:
                 vmCount=${{ parameters.vmCount }}
                 username="adm_installuser"
 
-                for i in $(seq 1 $vmCount); do
+                                for i in $(seq 1 $vmCount); do
                   vmIndex=1
                   while true; do
                     vmname="avd-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
@@ -148,9 +148,9 @@ stages:
 
                   # Get the Subnet Resource ID
                   subnetId=$(az network vnet subnet show \
-                      --resource-group $resourceGroupName \
-                      --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
-                      --name "snet-${{ parameters.productType }}" \
+                      --resource-group "${{ parameters.existingResourceGroup }}" \
+                      --vnet-name "${{ parameters.existingVnet }}" \
+                      --name "${{ parameters.existingSubnet }}" \
                       --query id -o tsv)
 
                   echo $subnetId
@@ -159,8 +159,8 @@ stages:
                   --resource-group $resourceGroupName \
                   --name $nicName \
                   --subnet $subnetId \
-                  --accelerated-networking true \
-                  --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                  --vnet-name "${{ parameters.existingVnet }}" \
+                  
 
                   # Create the VM
                   az vm create \
@@ -171,11 +171,11 @@ stages:
                     --size ${{ parameters.avdSize }} \
                     --authentication-type password \
                     --admin-password $(ADMIN_PASSWORD) \
+                    --nics $nicName \
                     --security-type TrustedLaunch \
                     --public-ip-address "" \
-                    --license-type Windows_Server \
+                    --license-type Windows_Client \
                     --nsg-rule None \
-                    --nics $nicName \
                     --availability-set "avail-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
                   echo "VM '$vmname' created successfully."
@@ -210,6 +210,7 @@ stages:
                       }"
                   echo "AVD Agent & Bootloader installation completed on $vmname."
                 done
+                
 
                 # Generate Registration Key for Host Pool
                 echo "Generating registration key for Host Pool..."
@@ -228,28 +229,19 @@ stages:
                 fi
 
                 echo "Full response received: $registrationKeyJson"
+                echo "Adding registration key to virtual machine..."
 
-                # Register all VMs to the Host Pool
-                for i in $(seq 1 $vmCount); do
-                  vmname="avd-${{ parameters.environmentType }}-$(printf "%02d" $i)"
-                  
-                  echo "Adding registration key to virtual machine $vmname..."
-                  
-                  # Use the RunPowerShellScript command to register the VM
-                  az vm run-command invoke \
-                    --command-id RunPowerShellScript \
-                    --name $vmname \
-                    --resource-group $resourceGroupName \
-                    --scripts "
-                      Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'IsRegistered' -Value 0 -Force
-                      Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'RegistrationToken' -Value \"$registrationKey\" -Force
-                      Restart-Computer -Force
-                    "
-                  
-                  echo "$vmname registered successfully."
-                done
+                # Use the RunPowerShellScript command to register the VM
+                az vm run-command invoke \
+                  --command-id RunPowerShellScript \
+                  --name $vmname \
+                  --resource-group $resourceGroupName \
+                  --scripts "
+                    Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'IsRegistered' -Value 0 -Force
+                    Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'RegistrationToken' -Value \"$registrationKey\" -Force
+                    Restart-Computer -Force
+                  "
 
-                
-
+                echo "$vmname registered successfully."
                 
 
