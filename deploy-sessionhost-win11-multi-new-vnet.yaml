@@ -120,7 +120,7 @@ stages:
                 vmCount=${{ parameters.vmCount }}
                 username="adm_installuser"
 
-                                for i in $(seq 1 $vmCount); do
+                for i in $(seq 1 $vmCount); do
                   vmIndex=1
                   while true; do
                     vmname="avd-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
@@ -148,8 +148,7 @@ stages:
                   --name $nicName \
                   --subnet $subnetId \
                   --accelerated-networking true \
-                  --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
-
+                  --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
 
                   # Create the VM
                   az vm create \
@@ -198,39 +197,38 @@ stages:
                           Start-Process 'msiexec.exe' -ArgumentList '/i', \$installer, '/quiet' -Wait;
                       }"
                   echo "AVD Agent & Bootloader installation completed on $vmname."
+
+                  # Generate Registration Key for Host Pool
+                  echo "Generating registration key for Host Pool..."
+                  hostPoolName="vdpool-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                  registrationKeyJson=$(az desktopvirtualization hostpool retrieve-registration-token \
+                    --resource-group $resourceGroupName \
+                    --name $hostPoolName -o json)
+
+                  # Extract only the registration token from the JSON response
+                  registrationKey=$(echo $registrationKeyJson | jq -r '.token')
+
+                  # Verify that we have the token
+                  if [[ -z "$registrationKey" ]]; then
+                    echo "Error: Registration key is missing. Cannot proceed."
+                    exit 1
+                  fi
+
+                  echo "Full response received: $registrationKeyJson"
+                  echo "Adding registration key to virtual machine..."
+
+                  # Use the RunPowerShellScript command to register the VM
+                  az vm run-command invoke \
+                    --command-id RunPowerShellScript \
+                    --name $vmname \
+                    --resource-group $resourceGroupName \
+                    --scripts "
+                      Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'IsRegistered' -Value 0 -Force
+                      Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'RegistrationToken' -Value \"$registrationKey\" -Force
+                      Restart-Computer -Force
+                    "
+
+                  echo "$vmname registered successfully."
                 done
-                
-
-                # Generate Registration Key for Host Pool
-                echo "Generating registration key for Host Pool..."
-                hostPoolName="vdpool-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
-                registrationKeyJson=$(az desktopvirtualization hostpool retrieve-registration-token \
-                  --resource-group $resourceGroupName \
-                  --name $hostPoolName -o json)
-
-                # Extract only the registration token from the JSON response
-                registrationKey=$(echo $registrationKeyJson | jq -r '.token')
-
-                # Verify that we have the token
-                if [[ -z "$registrationKey" ]]; then
-                  echo "Error: Registration key is missing. Cannot proceed."
-                  exit 1
-                fi
-
-                echo "Full response received: $registrationKeyJson"
-                echo "Adding registration key to virtual machine..."
-
-                # Use the RunPowerShellScript command to register the VM
-                az vm run-command invoke \
-                  --command-id RunPowerShellScript \
-                  --name $vmname \
-                  --resource-group $resourceGroupName \
-                  --scripts "
-                    Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'IsRegistered' -Value 0 -Force
-                    Set-ItemProperty -Path 'HKLM:\\SOFTWARE\\Microsoft\\RDInfraAgent' -Name 'RegistrationToken' -Value \"$registrationKey\" -Force
-                    Restart-Computer -Force
-                  "
-
-                echo "$vmname registered successfully."
                 
 
