@@ -1,10 +1,5 @@
-name: Deploy and install AVD installation
+name: Deploy infrastructure install image deploy machine
 trigger:
-  branches:
-    include:
-      - main
-
-pr:
   branches:
     include:
       - main
