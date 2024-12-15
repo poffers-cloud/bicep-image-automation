@@ -1,0 +1,415 @@
+name: Deploy infrastructure install image deploy machine
+trigger:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: "Credentials" 
+
+parameters:
+  - name: deploymentType
+    displayName: "Select the deployment type"
+    type: string
+    default: "sub"
+    values:
+      - tenant
+      - mg
+      - sub
+      - group
+ 
+  - name: subscriptionId
+    displayName: "Azure Subscription"
+    type: string
+    default: 
+
+  - name: productType
+    displayName: "Select the product type"
+    type: string
+    default: "avd"
+    values:
+      - avd
+
+  - name: environmentType
+    displayName: "Select the environment"
+    type: string
+    values:
+      - prod
+      - acc
+      - dev
+      - test
+
+  - name: location
+    displayName: "Select the location"
+    type: string
+    default: "westeurope"
+    values:
+      - westeurope
+      - northeurope
+
+  - name: vnetAddressPrefix
+    displayName: "Fill in the vnet address prefix"
+    type: string
+
+  - name: avdSubnetPrefix
+    displayName: "Fill in the subnet address prefix"
+    type: string
+
+  - name: imageVersion
+    displayName: "Select base image"
+    type: string
+    values:
+      - win11-24h2-avd-m365
+      - 2022-datacenter-azure-edition
+      
+
+  - name: offerName
+    displayName: "Select base image"
+    type: string
+    values:
+      - office-365
+      - WindowsServer
+  
+  - name: publisherName
+    displayName: "Select base image"
+    type: string
+    values:
+      - MicrosoftWindowsDesktop
+      - MicrosoftWindowsServer
+
+  - name: vmCount
+    displayName: "Number of VMs to Create"
+    type: string
+    default: 1
+
+  - name: avdSize
+    displayName: "Size of the AVD VM"
+    type: string
+    default: "Standard_D2s_v3"
+      
+
+stages:
+  - stage: ValidateInputs
+    displayName: "Validate Inputs"
+    jobs:
+      - job: validate_inputs
+        displayName: "Validate Deployment Inputs"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Install System Packages
+            inputs:
+              targetType: "inline"
+              script: |
+                sudo apt update
+                sudo apt install -y uuid-runtime
+
+          - task: Bash@3
+            displayName: Configure Globalization Setting
+            inputs:
+              targetType: "inline"
+              script: echo "##vso[task.setvariable variable=DOTNET_SYSTEM_GLOBALIZATION_INVARIANT]true"
+
+  - stage: Deploy_Bicep
+    displayName: "Deploy Bicep"
+    jobs:
+      - job: Deploy_Bicep
+        displayName: "Deploy Bicep"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+
+          - task: PowerShell@2
+            displayName: "Generate and Deploy Bicep Parameters"
+            inputs:
+              targetType: "inline"
+              script: |
+                # Login to Azure
+                az login --service-principal --username "$(AVDPipelines)" --password "$(Secret)" --tenant "$(tenantId)"
+
+                # Validate location parameter
+                $location = '${{ parameters.location }}'
+                if (-not $location) {
+                  Write-Error "Error: 'location' parameter not provided."
+                  exit 1
+                }
+
+                # Set location short code
+                switch ($location) {
+                  "westeurope" { $locationShortCode = "weu" }
+                  "northeurope" { $locationShortCode = "neu" }
+                  default {
+                    Write-Error "Unknown location: $location"
+                    exit 1
+                  }
+                }
+
+                # Define parameter file path
+                $paramPath = "$(System.DefaultWorkingDirectory)/params.bicepparam"
+                Write-Output "Resolved parameter file path: $paramPath"
+                Write-Output "System.DefaultWorkingDirectory: $(System.DefaultWorkingDirectory)"
+                Write-Output "Location: $location"
+                Write-Output "Location Short Code: $locationShortCode"
+
+                # Ensure directory exists
+                $paramDir = [System.IO.Path]::GetDirectoryName($paramPath)
+                if (-not (Test-Path $paramDir)) {
+                  New-Item -ItemType Directory -Path $paramDir | Out-Null
+                }
+
+                # Extract parameters
+                $subscriptionId = '${{ parameters.subscriptionId }}'
+                $productType = '${{ parameters.productType }}'
+                $environmentType = '${{ parameters.environmentType }}'
+                $updatedBy = 'updatedby'
+                $vnetAddressPrefix = '${{ parameters.vnetAddressPrefix }}'
+                $avdSubnetPrefix = '${{ parameters.avdSubnetPrefix }}'
+                $skuVersion = '${{ parameters.imageVersion }}'
+                $offerName = '${{ parameters.offerName }}'
+                $publisherName = '${{ parameters.publisherName }}'
+
+                # Derived values
+                $storageAccountName = "st$productType$environmentType$locationShortCode"
+                $azureSharedImageGalleryName = "gal$productType$environmentType$locationShortCode"
+                $imagesSharedGalleryName = "img-$productType-$environmentType-$locationShortCode"
+                $imageTemplateName = "it-$productType-$environmentType-$locationShortCode"
+                $userAssignedManagedIdentityName = "mi-$productType-$environmentType-$locationShortCode"
+                $vnetName = "vnet-$productType-$environmentType-$locationShortCode"
+                $avdHostpoolName = "vdpool-$productType-$environmentType-$locationShortCode"
+                $applicationGroupName = "vdag-$productType-$environmentType-$locationShortCode"
+                $workspaceName = "vdws-$productType-$environmentType-$locationShortCode"
+                $availabilitySetName = "avail-$productType-$environmentType-$locationShortCode"
+                $subnetName = "snet-$productType"
+                $networksecurityGroupName = "nsg-$productType"
+
+                # Validate required parameters
+                $requiredParams = @($subscriptionId, $productType, $environmentType, $location, $locationShortCode, $vnetAddressPrefix, $avdSubnetPrefix)
+                foreach ($param in $requiredParams) {
+                  if (-not $param) {
+                    Write-Error "Missing required parameter: $($param)"
+                    exit 1
+                  }
+                }
+
+                # Generate parameter file content
+                $params = @"
+                using './infra/avd.bicep'
+
+                param subscriptionId = '$subscriptionId'
+                param productType = '$productType'
+                param environmentType = '$environmentType'
+                param location = '$location'
+                param updatedBy = '$updatedBy'
+                param locationShortCode = '$locationShortCode'
+                param storageAccountName = '$storageAccountName'
+                param azureSharedImageGalleryName = '$azureSharedImageGalleryName'
+                param imagesSharedGalleryName = '$imagesSharedGalleryName'
+                param imageTemplateName = '$imageTemplateName'
+                param userAssignedManagedIdentityName = '$userAssignedManagedIdentityName'
+                param vnetName = '$vnetName'
+                param avdHostpoolName = '$avdHostpoolName'
+                param applicationGroupName = '$applicationGroupName'
+                param workspaceName = '$workspaceName'
+                param availabilitySetName = '$availabilitySetName'
+                param subnetName = '$subnetName'
+                param vnetAddressPrefix = '$vnetAddressPrefix'
+                param avdSubnetPrefix = '$avdSubnetPrefix'
+                param skuVersion = '$skuVersion'
+                param offerName = '$offerName'
+                param publisherName = '$publisherName'
+                param networksecurityGroupName = '$networksecurityGroupName'
+                "@
+
+                # Write to file
+                Write-Output "Writing parameter file to: $paramPath"
+                $params | Out-File -FilePath $paramPath -Encoding UTF8
+
+                # Verify file content
+                Write-Output "Generated parameter file content:"
+                Get-Content $paramPath
+
+                # Generate a UUID using PowerShell
+                $uuid = [guid]::NewGuid()
+
+                # Deploy Bicep template using the correct file path and UUID
+                az deployment sub create `
+                  --name "action-deploy-$uuid" `
+                  --location $location `
+                  --template-file "$(System.DefaultWorkingDirectory)/infra/avd.bicep" `
+                  --parameters $paramPath
+  - stage: Create_Image
+    jobs:
+      - job: CreateImage
+        displayName: "Create Image"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: List and Run the Latest Image
+            inputs:
+              targetType: "inline"
+              script: |
+                # Set location shortcode
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                # List image builders in the resource group
+                imageList=$(az image builder list -g "$resourceGroupName" --query "[].{Name:name, CreationTime:timeCreated}" -o json)
+
+                if [[ -z "$imageList" || "$imageList" == "[]" ]]; then
+                  echo "Error: No image builders found in resource group '$resourceGroupName'"
+                  exit 1
+                fi
+
+                # Get the latest image
+                latestImageName=$(echo "$imageList" | jq -r 'sort_by(.CreationTime) | last | .Name')
+
+                if [[ -z "$latestImageName" ]]; then
+                  echo "Error: Could not find the latest image builder in resource group '$resourceGroupName'"
+                  exit 1
+                fi
+
+                # Run the image builder
+                az image builder run -n "$latestImageName" -g "$resourceGroupName" --no-wait
+
+                # Wait for completion
+                az image builder wait -n "$latestImageName" -g "$resourceGroupName" --custom "lastRunStatus.runState!='Running'"
+
+                echo "Image creation completed successfully."
+  
+  - stage: DeployVMs
+    displayName: "Deploy VMs using the latest image"
+    jobs:
+      - job: BuildVMs
+        displayName: "Build Virtual Machines"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "Create VMs"
+            inputs:
+              azureSubscription: "AVDPipelines"
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+                
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+
+
+                # Get the latest image version from the shared image gallery
+                sigImageVersion=$(az sig image-version list \
+                  --resource-group $resourceGroupName \
+                  --gallery-name "gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}" \
+                  --gallery-image-definition "img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                  --query "[].{Version:name}" -o tsv | sort -V | tail -n 1)
+
+                if [[ -z "$sigImageVersion" ]]; then
+                  echo "Error: Could not find the latest image version."
+                  exit 1
+                fi
+
+                vmCount=${{ parameters.vmCount }}
+                username="adm_installuser"
+                new_vm_names=""
+
+                for i in $(seq 1 $vmCount); do
+                  vmIndex=1
+                  while true; do
+                    vmname="ins-${{ parameters.environmentType }}-$(printf "%02d" $vmIndex)"
+                    existingVM=$(az vm list --resource-group $resourceGroupName --query "[?name=='$vmname']" -o tsv)
+
+                    if [[ -z "$existingVM" ]]; then
+                      break
+                    else
+                      ((vmIndex++))
+                    fi
+                  done
+
+                  nicName="nic-$vmname"
+
+                  # Get the Subnet Resource ID
+                  subnetId=$(az network vnet subnet show \
+                      --resource-group $resourceGroupName \
+                      --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                      --name "snet-${{ parameters.productType }}" \
+                      --query id -o tsv)
+
+                  echo $subnetId
+
+                  az network nic create \
+                  --resource-group $resourceGroupName \
+                  --name $nicName \
+                  --subnet $subnetId \
+                  --accelerated-networking true \
+                  --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+
+                   # Create the VM
+                  az vm create \
+                    --resource-group $resourceGroupName \
+                    --name $vmname \
+                    --image "/subscriptions/${{ parameters.subscriptionId }}/resourceGroups/${resourceGroupName}/providers/Microsoft.Compute/galleries/gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}/images/img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}/versions/$sigImageVersion" \
+                    --admin-username $username \
+                    --size ${{ parameters.avdSize }} \
+                    --authentication-type password \
+                    --admin-password $(ADMIN_PASSWORD) \
+                    --nics $nicName \
+                    --security-type TrustedLaunch \
+                    --public-ip-address "" \
+                    --license-type Windows_Server \
+                    --nsg-rule None \
+
+                  echo "VM '$vmname' created successfully."
+                  new_vm_names="$new_vm_names $vmname"
+                done
+
+                echo "VMs created: $new_vm_names"
+                echo "##vso[task.setvariable variable=vmNames]$new_vm_names"
