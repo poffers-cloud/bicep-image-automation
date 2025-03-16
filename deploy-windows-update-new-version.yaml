@@ -1,0 +1,781 @@
+name: build-vm
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - group: "Credentials"
+
+parameters:
+  - name: deploymentType
+    displayName: "Select the deployment type"
+    type: string
+    default: "sub"
+    values:
+      - tenant
+      - mg
+      - sub
+      - group
+
+  - name: subscriptionId
+    displayName: "Azure Subscription"
+    type: string
+    default: ""
+
+  - name: productType
+    displayName: "Select the product type"
+    type: string
+    default: "avd"
+    values:
+      - avd
+
+  - name: environmentType
+    displayName: "Select the environment"
+    type: string
+    values:
+      - prod
+      - acc
+      - dev
+      - test
+
+  - name: location
+    displayName: "Select the location"
+    type: string
+    default: "westeurope"
+    values:
+      - westeurope
+      - northeurope
+
+  - name: vmName
+    displayName: "Name of the VM"
+    type: string
+    default: ""
+
+  - name: vmSize
+    displayName: "Size of the VM"
+    type: string
+    default: "Standard_D2s_v3"
+  
+  - name: imageVersion
+    displayName: "fill in the image version name like 2024.11.27.1"
+    type: string
+    default: "2025.03.17"
+
+stages:
+  - stage: DeployVMs
+    displayName: "Deploy VMs using the latest image"
+    jobs:
+      - job: BuildVMs
+        displayName: "Build Virtual Machines"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: AzureCLI@2
+            displayName: "Create VMs"
+            inputs:
+              azureSubscription: "AVDPipelines"
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account set --subscription ${{ parameters.subscriptionId }}
+
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+
+                vmname="${{ parameters.vmName }}"
+                if [[ -z "$vmname" ]]; then
+                  echo "Error: VM Name cannot be empty."
+                  exit 1
+                fi
+
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+
+                # Get the latest image version from the shared image gallery
+                sigImageVersion=$(az sig image-version list \
+                  --resource-group $resourceGroupName \
+                  --gallery-name "gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}" \
+                  --gallery-image-definition "img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                  --query "[].{Version:name}" -o tsv | sort -V | tail -n 1)
+
+                if [[ -z "$sigImageVersion" ]]; then
+                  echo "Error: Could not find the latest image version."
+                  exit 1
+                fi
+
+                username="adm_installuser"
+                nicName="nic-$vmname"
+
+                echo "NIC Name: $nicName"
+
+                # Get the Subnet Resource ID
+                subnetId=$(az network vnet subnet show \
+                    --resource-group $resourceGroupName \
+                    --vnet-name "vnet-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}" \
+                    --name "snet-${{ parameters.productType }}" \
+                    --query id -o tsv)
+
+                echo "Subnet ID: $subnetId"
+
+                # Create NIC
+                az network nic create \
+                  --resource-group $resourceGroupName \
+                  --name $nicName \
+                  --subnet $subnetId \
+                  --accelerated-networking true
+
+                # Create the VM
+                az vm create \
+                  --resource-group $resourceGroupName \
+                  --name $vmname \
+                  --image "/subscriptions/${{ parameters.subscriptionId }}/resourceGroups/${resourceGroupName}/providers/Microsoft.Compute/galleries/gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}/images/img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}/versions/$sigImageVersion" \
+                  --admin-username $username \
+                  --size ${{ parameters.vmSize }} \
+                  --authentication-type password \
+                  --admin-password $(ADMIN_PASSWORD) \
+                  --nics $nicName \
+                  --security-type TrustedLaunch \
+                  --public-ip-address "" \
+                  --license-type Windows_Server \
+                  --nsg-rule None
+
+                echo "VM '$vmname' created successfully."
+  
+  - stage: check_Windows_Updates
+    displayName: "Check First Time for Windows Updates"
+    jobs:
+    - job: checkWindowsUpdates
+      displayName: "Check First Time for Windows Updates"
+      pool:
+        vmImage: "windows-latest"
+      steps:
+        - task: PowerShell@2
+          inputs:
+            azureSubscription: "AVDPipelines"
+            targetType: 'inline'
+            script: |
+                # Ensure required Az modules are installed
+                Write-Output "Installing Az modules..."
+                Install-Module -Name Az.Accounts -Force -Scope CurrentUser -AllowClobber
+                Install-Module -Name Az.Compute -Force -Scope CurrentUser -AllowClobber
+                Import-Module Az.Accounts
+                Import-Module Az.Compute
+                Write-Output "Az modules installed successfully."
+
+                # Connect to Azure Account
+                Write-Output "Connecting to Azure..."
+                $passwd = ConvertTo-SecureString $(Secret) -AsPlainText -Force
+                $pscredential = New-Object System.Management.Automation.PSCredential('$(AVDPipelines)', $passwd)
+                Connect-AzAccount -ServicePrincipal -Credential $pscredential -Tenant $(tenantId)
+                Write-Output "Connected to Azure."
+
+                # Set the Azure subscription context
+                Write-Output "Setting Azure subscription context..."
+                Set-AzContext -Subscription "$(subscriptionId)"
+                Write-Output "Subscription context set."
+
+                # Define VM details
+                $vmname = "${{ parameters.vmName }}"
+                $locationShortCode = if ("${{ parameters.location }}" -eq "westeurope") { "weu" } else { "neu" }
+                $resourceGroupName = "rg-${{ parameters.productType }}-${{ parameters.environmentType }}-$locationShortCode"
+
+                # Run Windows Update Check
+                $script = @'
+                Write-Output "Checking for Windows Updates..."
+                Try {
+                  Install-PackageProvider -Name NuGet -Force -ErrorAction Stop
+                  Install-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
+                  powershell.exe -ExecutionPolicy Bypass -Command "Import-Module PSWindowsUpdate"
+                  
+                  Write-Output "Checking for available updates..."
+                  $updates = Get-WindowsUpdate -MicrosoftUpdate -IgnoreReboot -ErrorAction Stop
+                }
+                Catch {
+                  Write-Output "Error checking updates: $_"
+                  Exit 1
+                }
+
+                if ($updates) {
+                  Write-Output "The following updates are available:"
+                  $updates | ForEach-Object { Write-Output "Title: $($_.Title) | KB: $($_.KBArticle) | Size: $($_.Size) | Severity: $($_.MsrcSeverity)" }
+                } else {
+                  Write-Output "No updates available."
+                }
+                '@
+
+                $updateResult = Invoke-AzVMRunCommand -ResourceGroupName $resourceGroupName -Name $vmname -CommandId "RunPowerShellScript" -ScriptString $script
+
+                Write-Output "Windows update check completed."
+                $updateResult.Value | ForEach-Object {
+                  Write-Output "Code          : $($_.Code)"
+                  Write-Output "Level         : $($_.Level)"
+                  Write-Output "DisplayStatus : $($_.DisplayStatus)"
+                  Write-Output "Message       : $($_.Message)"
+                  Write-Output "Time          : $($_.Time)"
+                }
+
+        - task: PowerShell@2
+          displayName: "Install Windows Updates & Reboot VM"
+          inputs:
+            azureSubscription: "AVDPipelines"
+            targetType: 'inline'
+            script: |
+                Write-Output "Installing Windows Updates..."
+                 # Define VM details
+                $vmname = "${{ parameters.vmName }}"
+                $locationShortCode = if ("${{ parameters.location }}" -eq "westeurope") { "weu" } else { "neu" }
+                $resourceGroupName = "rg-${{ parameters.productType }}-${{ parameters.environmentType }}-$locationShortCode"
+
+                $installScript = @'
+                Write-Output "Installing updates..."
+
+                Try {
+                  Install-PackageProvider -Name NuGet -Force -ErrorAction Stop
+                  Install-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
+                  powershell.exe -ExecutionPolicy Bypass -Command "Import-Module PSWindowsUpdate"
+
+                  Write-Output "Starting update installation..."
+                  Install-WindowsUpdate -MicrosoftUpdate -AcceptAll -IgnoreReboot -Confirm:$false
+                  Write-Output "Updates installed successfully."
+                }
+                Catch {
+                  Write-Output "Error during update installation: $_"
+                  Exit 1
+                }
+
+                Write-Output "Rebooting VM..."
+                restart-computer -Force
+                '@
+
+                Invoke-AzVMRunCommand -ResourceGroupName $resourceGroupName -Name $vmname -CommandId "RunPowerShellScript" -ScriptString $installScript
+
+                Write-Output "VM reboot initiated."
+  - stage: Check_Install_Windows_Updates_Second_time
+    displayName: "Check second time for Windows Updates"
+    jobs:
+    - job: Check_Install_Windows_Updates_Second_time
+      displayName: "Check second time for Windows Updates"
+      pool:
+        vmImage: "windows-latest"
+      steps:
+        - task: PowerShell@2
+          displayName: "Check Windows Updates Second Time"
+          inputs:
+            azureSubscription: "AVDPipelines"
+            targetType: 'inline'
+            script: |
+                # Ensure required Az modules are installed
+                Write-Output "Installing Az modules..."
+                Install-Module -Name Az.Accounts -Force -Scope CurrentUser -AllowClobber
+                Install-Module -Name Az.Compute -Force -Scope CurrentUser -AllowClobber
+                Import-Module Az.Accounts
+                Import-Module Az.Compute
+                Write-Output "Az modules installed successfully."
+
+                # Connect to Azure Account
+                Write-Output "Connecting to Azure..."
+                $passwd = ConvertTo-SecureString $(Secret) -AsPlainText -Force
+                $pscredential = New-Object System.Management.Automation.PSCredential('$(AVDPipelines)', $passwd)
+                Connect-AzAccount -ServicePrincipal -Credential $pscredential -Tenant $(tenantId)
+                Write-Output "Connected to Azure."
+
+                # Set the Azure subscription context
+                Write-Output "Setting Azure subscription context..."
+                Set-AzContext -Subscription "$(subscriptionId)"
+                Write-Output "Subscription context set."
+
+                # Define VM details
+                $vmname = "${{ parameters.vmName }}"
+                $locationShortCode = if ("${{ parameters.location }}" -eq "westeurope") { "weu" } else { "neu" }
+                $resourceGroupName = "rg-${{ parameters.productType }}-${{ parameters.environmentType }}-$locationShortCode"
+
+                # Run Windows Update Check
+                $script = @'
+                Write-Output "Checking for Windows Updates..."
+                Try {
+                  Install-PackageProvider -Name NuGet -Force -ErrorAction Stop
+                  Install-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
+                  powershell.exe -ExecutionPolicy Bypass -Command "Import-Module PSWindowsUpdate"
+                  
+                  Write-Output "Checking for available updates..."
+                  $updates = Get-WindowsUpdate -MicrosoftUpdate -IgnoreReboot -ErrorAction Stop
+                }
+                Catch {
+                  Write-Output "Error checking updates: $_"
+                  Exit 1
+                }
+
+                if ($updates) {
+                  Write-Output "The following updates are available:"
+                  $updates | ForEach-Object { Write-Output "Title: $($_.Title) | KB: $($_.KBArticle) | Size: $($_.Size) | Severity: $($_.MsrcSeverity)" }
+                } else {
+                  Write-Output "No updates available."
+                }
+                '@
+
+                $updateResult = Invoke-AzVMRunCommand -ResourceGroupName $resourceGroupName -Name $vmname -CommandId "RunPowerShellScript" -ScriptString $script
+
+                Write-Output "Windows update check completed."
+                $updateResult.Value | ForEach-Object {
+                  Write-Output "Code          : $($_.Code)"
+                  Write-Output "Level         : $($_.Level)"
+                  Write-Output "DisplayStatus : $($_.DisplayStatus)"
+                  Write-Output "Message       : $($_.Message)"
+                  Write-Output "Time          : $($_.Time)"
+                }
+        - task: PowerShell@2
+          displayName: "Install Windows Updates & Reboot VM Second Time"
+          inputs:
+            azureSubscription: "AVDPipelines"
+            targetType: 'inline'
+            script: |
+                Write-Output "Installing Windows Updates..."
+                 # Define VM details
+                $vmname = "${{ parameters.vmName }}"
+                $locationShortCode = if ("${{ parameters.location }}" -eq "westeurope") { "weu" } else { "neu" }
+                $resourceGroupName = "rg-${{ parameters.productType }}-${{ parameters.environmentType }}-$locationShortCode"
+
+                $installScript = @'
+                Write-Output "Installing updates..."
+
+                Try {
+                  Install-PackageProvider -Name NuGet -Force -ErrorAction Stop
+                  Install-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
+                  powershell.exe -ExecutionPolicy Bypass -Command "Import-Module PSWindowsUpdate"
+
+                  Write-Output "Starting update installation..."
+                  Install-WindowsUpdate -MicrosoftUpdate -AcceptAll -IgnoreReboot -Confirm:$false
+                  Write-Output "Updates installed successfully."
+                }
+                Catch {
+                  Write-Output "Error during update installation: $_"
+                  Exit 1
+                }
+
+                Write-Output "Rebooting VM..."
+                restart-computer -Force
+                '@
+
+                Invoke-AzVMRunCommand -ResourceGroupName $resourceGroupName -Name $vmname -CommandId "RunPowerShellScript" -ScriptString $installScript
+  - stage: check_Windows_Updates_last_time
+    displayName: "Check Windows Updates last time and clean up"
+    jobs:
+    - job: checkWindowsUpdatesLastTime
+      displayName: "Check Windows Updates last time and clean up"
+      pool:
+        vmImage: "windows-latest"
+      steps:
+        - task: PowerShell@2
+          inputs:
+            azureSubscription: "AVDPipelines"
+            targetType: 'inline'
+            script: |
+                # Ensure required Az modules are installed
+                Write-Output "Installing Az modules..."
+                Install-Module -Name Az.Accounts -Force -Scope CurrentUser -AllowClobber
+                Install-Module -Name Az.Compute -Force -Scope CurrentUser -AllowClobber
+                Import-Module Az.Accounts
+                Import-Module Az.Compute
+                Write-Output "Az modules installed successfully."
+
+                # Connect to Azure Account
+                Write-Output "Connecting to Azure..."
+                $passwd = ConvertTo-SecureString $(Secret) -AsPlainText -Force
+                $pscredential = New-Object System.Management.Automation.PSCredential('$(AVDPipelines)', $passwd)
+                Connect-AzAccount -ServicePrincipal -Credential $pscredential -Tenant $(tenantId)
+                Write-Output "Connected to Azure."
+
+                # Set the Azure subscription context
+                Write-Output "Setting Azure subscription context..."
+                Set-AzContext -Subscription "$(subscriptionId)"
+                Write-Output "Subscription context set."
+
+                # Define VM details
+                $vmname = "${{ parameters.vmName }}"
+                $locationShortCode = if ("${{ parameters.location }}" -eq "westeurope") { "weu" } else { "neu" }
+                $resourceGroupName = "rg-${{ parameters.productType }}-${{ parameters.environmentType }}-$locationShortCode"
+
+                # Run Windows Update Check
+                $script = @'
+                Write-Output "Checking for Windows Updates..."
+                Try {
+                    Install-PackageProvider -Name NuGet -Force -ErrorAction Stop
+                    Install-Module -Name PSWindowsUpdate -Force -ErrorAction Stop
+                    powershell.exe -ExecutionPolicy Bypass -Command "Import-Module PSWindowsUpdate"
+
+                    Write-Output "Checking for available updates..."
+                    $updates = Get-WindowsUpdate -MicrosoftUpdate -IgnoreReboot -ErrorAction Stop
+                }
+                Catch {
+                    Write-Output "Error checking updates: $_"
+                    Exit 1
+                }
+
+                if ($updates) {
+                    Write-Output "The following updates are available:"
+                    $updates | ForEach-Object { Write-Output "Title: $($_.Title) | KB: $($_.KBArticle) | Size: $($_.Size) | Severity: $($_.MsrcSeverity)" }
+                } else {
+                    Write-Output "No updates available."
+                }
+                # Get Windows Update history
+                Write-Output "Fetching Windows Update history..."
+                $updateHistory = Get-WUHistory
+                if ($updateHistory) {
+                    $updateHistory | ForEach-Object { Write-Output "Date: $($_.Date) | Title: $($_.Title) | Status: $($_.ResultCode)" }
+                } else {
+                    Write-Output "No update history found."
+                }
+                '@
+
+                # Execute script on Azure VM
+                $updateResult = Invoke-AzVMRunCommand -ResourceGroupName $resourceGroupName -Name $vmname -CommandId "RunPowerShellScript" -ScriptString $script
+
+                # Output results
+                Write-Output "Windows update check completed."
+                $updateResult.Value | ForEach-Object {
+                    Write-Output "Code          : $($_.Code)"
+                    Write-Output "Level         : $($_.Level)"
+                    Write-Output "DisplayStatus : $($_.DisplayStatus)"
+                    Write-Output "Message       : $($_.Message)"
+                    Write-Output "Time          : $($_.Time)"
+                }
+  
+  - stage: Take_snapshot_of_the_Disk
+    displayName: "Create a snapshot of the current disk"
+    jobs:
+      - job: Take_snapshot_of_the_Disk
+        displayName: "Create a snapshot of the current disk"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+                
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+                
+                # Define variables
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                location="${{ parameters.location }}"
+                vmName="${{ parameters.vmName }}" 
+
+                # Fetch the disk name dynamically from the VM
+                diskName=$(az vm show \
+                  --name "$vmName" \
+                  --resource-group "$resourceGroupName" \
+                  --query "storageProfile.osDisk.name" -o tsv)
+
+                if [ -z "$diskName" ]; then
+                  echo "Error: Unable to retrieve the OS disk name for VM $vmName in resource group $resourceGroupName."
+                  exit 1
+                fi
+
+                echo "Found OS Disk: $diskName"
+
+                # Define snapshot name with timestamp
+                timestamp=$(date -u +"%Y%m%dT%H%M%SZ") # Get current UTC time
+                snapshotName="snapshot-bs-${timestamp}-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+
+                # Create a snapshot
+                az snapshot create \
+                  --name "$snapshotName" \
+                  --resource-group "$resourceGroupName" \
+                  --location "$location" \
+                  --source "$diskName" \
+                  --output json
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to create snapshot $snapshotName."
+                  exit 1
+                fi
+
+                echo "Snapshot $snapshotName created successfully in resource group $resourceGroupName."
+
+  - stage: Sysprep_the_VM
+    displayName: "Sysprep the machine"
+    jobs:
+      - job: Sysprep_the_VM
+        displayName: "Sysprep the machine"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+                
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+                
+                # Define variables
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                vmName="${{ parameters.vmName }}" 
+                version="${{ parameters.imageVersion }}"
+
+                # Sysprep the machine
+                echo "Sysprepping the machine $vmName in resource group $resourceGroupName."
+                az vm run-command invoke \
+                  --command-id RunPowerShellScript \
+                  --name "$vmName" \
+                  --resource-group "$resourceGroupName" \
+                  --scripts "Start-Process -FilePath 'C:\\Windows\\System32\\Sysprep\\Sysprep.exe' -ArgumentList '/generalize /shutdown /oobe' -Wait -NoNewWindow"
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to sysprep the VM $vmName."
+                  exit 1
+                fi
+
+                echo "Sysprep operation completed for VM $vmName."
+
+  - stage: Capture_Image_Save_It_To_Gallery
+    displayName: "Capture the image and save it to the gallery"
+    jobs:
+      - job: Capture_Image_Save_It_To_Gallery
+        displayName: "Capture the image and save it to the gallery"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+                
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+                
+                # Define variables
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                location="${{ parameters.location }}"
+                vmName="${{ parameters.vmName }}"
+                imageGalleryName="gal${{ parameters.productType }}${{ parameters.environmentType }}${locationShortCode}"  # Name of the image gallery
+
+                # Display imageGalleryName for confirmation
+                echo "Image Gallery Name: $imageGalleryName"
+
+                # Generate image name dynamically with timestamp
+                imageName="img-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                echo "Image Name: $imageName"
+
+                version="${{ parameters.imageVersion }}"
+                echo "Image Version: $version"
+
+                # Step 1: Deallocate the VM
+                echo "Deallocating the VM $vmName in resource group $resourceGroupName..."
+                az vm deallocate --resource-group "$resourceGroupName" --name "$vmName"
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to deallocate VM $vmName."
+                  exit 1
+                fi
+                echo "VM $vmName deallocated successfully."
+
+                # Step 2: Generalize the VM
+                echo "Generalizing the VM $vmName..."
+                az vm generalize --resource-group "$resourceGroupName" --name "$vmName"
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to generalize VM $vmName."
+                  exit 1
+                fi
+                echo "VM $vmName generalized successfully."
+
+                # Step 3: Get the VM resource ID
+                echo "Retrieving the resource ID for the VM..."
+                vmResourceId=$(az vm show \
+                  --resource-group "$resourceGroupName" \
+                  --name "$vmName" \
+                  --query "id" \
+                  --output tsv)
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to retrieve VM resource ID."
+                  exit 1
+                fi
+
+                echo "VM Resource ID: $vmResourceId"
+
+                # Step 4: Create the image version in the image gallery
+                echo "Creating image version in the gallery..."
+                az sig image-version create \
+                  --resource-group "$resourceGroupName" \
+                  --gallery-name "$imageGalleryName" \
+                  --gallery-image-definition "$imageName" \
+                  --gallery-image-version "$version" \
+                  --virtual-machine "$vmResourceId" \
+                                   
+
+                if [ $? -ne 0 ]; then
+                  echo "Failed to create image version in the gallery."
+                  exit 1
+                fi
+
+                echo "Image version created successfully in gallery $imageGalleryName."
+
+  - stage: Delete_Installation_Machine
+    displayName: "Delete the installation machine"
+    jobs:
+      - job: Delete_Installation_Machine
+        displayName: "Delete the installation machine"
+        pool:
+          vmImage: "ubuntu-latest"
+        steps:
+          - task: Bash@3
+            displayName: Azure CLI Login and Resource Deletion
+            inputs:
+              targetType: "inline"
+              script: |
+                # Install Azure CLI
+                sudo apt-get update
+                sudo apt-get install -y libicu-dev curl
+                curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
+
+                # Login to Azure
+                az login --service-principal --username $(AVDPipelines) --password $(Secret) --tenant $(tenantId)
+
+                if [ $? -ne 0 ]; then
+                  echo "Azure login failed. Please check the service principal credentials."
+                  exit 1
+                fi
+                echo "Azure login successful."
+
+                # Confirm subscription
+                az account show
+
+                # Define parameters
+                locationShortCode=""
+                case "${{ parameters.location }}" in
+                  "westeurope") locationShortCode="weu" ;;
+                  "northeurope") locationShortCode="neu" ;;
+                  *) echo "Unknown location: ${{ parameters.location }}"; exit 1 ;;
+                esac
+
+                # Define variables
+                resourceGroupName="rg-${{ parameters.productType }}-${{ parameters.environmentType }}-${locationShortCode}"
+                vmName="${{ parameters.vmName }}"
+
+                echo "Deleting Virtual Machine: $vmName from Resource Group: $resourceGroupName"
+
+                # Get the attached resources
+                osDiskId=$(az vm show --name $vmName --resource-group $resourceGroupName --query "storageProfile.osDisk.managedDisk.id" -o tsv)
+                dataDiskIds=$(az vm show --name $vmName --resource-group $resourceGroupName --query "storageProfile.dataDisks[].managedDisk.id" -o tsv)
+                nicIds=$(az vm show --name $vmName --resource-group $resourceGroupName --query "networkProfile.networkInterfaces[].id" -o tsv)
+
+                # Delete the Virtual Machine
+                az vm delete --name $vmName --resource-group $resourceGroupName --yes --no-wait
+                echo "Virtual Machine $vmName deleted."
+
+                # Delete the OS Disk
+                if [ -n "$osDiskId" ]; then
+                  echo "Deleting OS Disk: $osDiskId"
+                  az disk delete --ids $osDiskId --yes --no-wait
+                fi
+
+                # Delete Data Disks
+                if [ -n "$dataDiskIds" ]; then
+                  echo "Deleting Data Disks: $dataDiskIds"
+                  for diskId in $dataDiskIds; do
+                    az disk delete --ids $diskId --yes --no-wait
+                  done
+                fi
+
+                # Delete NICs
+                if [ -n "$nicIds" ]; then
+                  echo "Deleting Network Interfaces: $nicIds"
+                  for nicId in $nicIds; do
+                    az network nic delete --ids $nicId
+                  done
+                fi
+
+                echo "Cleanup completed for VM $vmName."
+
+                
