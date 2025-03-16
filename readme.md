@@ -29,20 +29,20 @@ This pipeline automates the creation of a custom virtual machine image tailored 
 
 This pipeline ensures consistency across deployments by leveraging the foundational image template from the infrastructure setup, while providing flexibility for additional preparation as needed.  
 
-## 3. deploy-installation-vm.yaml
+## 3. deploy-installation-vm.yaml  
 This pipeline deploys a virtual machine using the custom image created earlier. It supports post-deployment tasks such as:
 
 - Verifying and testing the custom image.
 - Installing additional applications or settings that may be required after initial image creation.
 
-## 4. deploy-sessionhost-2022-existing-vnet.yaml
+## 4. deploy-sessionhost-2022-existing-vnet.yaml  
 This pipeline deploys Azure Virtual Desktop session hosts running **Windows Server 2022** into an existing virtual network (VNet). Key aspects include:
 
 - Utilizing an existing VNet and subnets for deployment.
 - Connecting the session hosts to the appropriate AVD host pool.
 - Ensuring seamless integration with existing infrastructure.
 
-## 5. deploy-sessionhost-2022-new-vnet.yaml
+## 5. deploy-sessionhost-2022-new-vnet.yaml  
 This pipeline deploys Azure Virtual Desktop session hosts running **Windows Server 2022** into a virtual network (VNet) that is deployed as part of the IaC Bicep infrastructure. It includes:
 
 - Utilization of the VNet and subnets defined and provisioned during the infrastructure deployment via Bicep templates.
@@ -51,7 +51,7 @@ This pipeline deploys Azure Virtual Desktop session hosts running **Windows Serv
 
 This approach ensures consistency between the network infrastructure and the session host deployment while leveraging the existing IaC setup.
 
-## 6. deploy-infra-create_image-deploy_vm.yaml
+## 6. deploy-infra-create_image-deploy_vm.yaml  
 This pipeline combines multiple steps for end-to-end deployment of AVD, including:
 
 - **Infrastructure Setup**: Provisions resource groups, host pools, and networking components.
@@ -60,14 +60,14 @@ This pipeline combines multiple steps for end-to-end deployment of AVD, includin
 
 Automates the entire AVD setup process, ensuring a streamlined and consistent deployment.
 
-## 7. deploy-sessionhost-win11-multi-existing-vnet.yaml
+## 7. deploy-sessionhost-win11-multi-existing-vnet.yaml  
 This pipeline deploys Azure Virtual Desktop session hosts running **Windows 11 Multi-session** into an existing virtual network (VNet). Key aspects include:
 
 - Utilizing an existing VNet and subnets for deployment.
 - Connecting the session hosts to the appropriate AVD host pool.
 - Ensuring seamless integration with existing infrastructure.
 
-## 8. deploy-sessionhost-win11-multi-new-vnet.yaml
+## 8. deploy-sessionhost-win11-multi-new-vnet.yaml  
 This pipeline deploys Azure Virtual Desktop session hosts running **Windows 11 Multi-session** into a virtual network (VNet) that is deployed as part of the IaC Bicep infrastructure. It includes:
 
 - Utilization of the VNet and subnets defined and provisioned during the infrastructure deployment via Bicep templates.
@@ -76,7 +76,7 @@ This pipeline deploys Azure Virtual Desktop session hosts running **Windows 11 M
 
 This approach ensures consistency between the network infrastructure and the session host deployment while leveraging the existing IaC setup.
 
-## 9. deploy-create-new-image-version.yaml
+## 9. deploy-create-new-image-version.yaml  
 This pipeline automates the process of capturing a new version of a virtual machine image, making it ready for reuse in future AVD deployments. Key tasks include:
 
 - **Taking a Snapshot of the VM**: Captures the current state of the installation VM to ensure that it is preserved before sysprep is applied.
@@ -86,7 +86,19 @@ This pipeline automates the process of capturing a new version of a virtual mach
 
 This step ensures that the image is properly versioned, generalized, and stored in the Azure Compute Gallery for consistent deployment across your AVD environments.
 
+## 10. deploy-windows-update-new-version.yaml  
+This pipeline automates updating a Windows virtual machine to create a new image version. It includes:
+
+- **Spinning Up a New Machine**: Deploys a fresh VM based on an existing image.
+- **Updating Windows**: Installs the latest Windows updates and patches.
+- **Snapshotting the VM**: Captures a snapshot of the VM to preserve the updated state.
+- **Sysprepping the Machine**: Generalizes the machine using Sysprep for redeployment.
+- **Sharing to Azure Compute Gallery**: Publishes the updated image to the Azure Compute Gallery for future use.
+- **Cleaning Up Resources**: Deletes temporary resources after the image is successfully stored.
+
+This ensures that AVD session hosts always use the latest patched and optimized Windows images.
+
 ---
 
-## Purpose
+## Purpose  
 These pipelines are designed to streamline and automate the deployment and management of Azure Virtual Desktop environments, ensuring consistency, scalability, and efficiency across all stages of the setup process.
