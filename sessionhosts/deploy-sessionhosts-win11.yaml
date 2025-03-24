@@ -177,7 +177,7 @@ stages:
                     --scripts "
                       [System.Collections.Generic.List[string]]\$uris = @(
                         'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrmXv',
-                        'https://query.prod.cms.rt.microsoft.com/cms/api/am/binary/RWrxrH'
+                        'https://res.cdn.office.net/s01-remote-desktop-agent/c6f347d6-61da-413b-8e42-f402355cb005/Microsoft.RDInfra.RDAgentBootLoader.Installer-x64-1.0.9023.1100.msi'
                       );
                       \$installers = @();
                       \$outputDir = 'C:\\Downloads';
